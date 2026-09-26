@@ -3,6 +3,9 @@
  * Handles subscriptions, invoices, and webhooks from Polar.sh
  */
 
+import { createHmac } from "crypto";
+import { safeCompare } from "@/lib/utils/timing-safe";
+
 const POLAR_API_URL = "https://api.polar.sh";
 const POLAR_ACCESS_TOKEN = process.env.POLAR_ACCESS_TOKEN;
 
@@ -330,17 +333,15 @@ export function verifyPolarWebhook(
   signature: string,
   webhookSecret: string
 ): boolean {
-  if (!webhookSecret) {
+  // Fail closed: no secret or no signature means the request is not trusted.
+  if (!webhookSecret || !signature) {
     return false;
   }
 
-  // Polar uses HMAC-SHA256 for webhook signatures
-  const crypto = require("crypto");
-  const hmac = crypto.createHmac("sha256", webhookSecret);
-  hmac.update(payload);
-  const digest = hmac.digest("hex");
+  // HMAC-SHA256 (hex) over the raw body, compared in constant time.
+  const digest = createHmac("sha256", webhookSecret).update(payload).digest("hex");
 
-  return signature === digest;
+  return safeCompare(signature, digest);
 }
 
 /**

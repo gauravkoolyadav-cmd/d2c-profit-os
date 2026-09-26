@@ -1,27 +1,20 @@
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { platformConnections } from "@/lib/db/schema";
-import { hasBrandAccess } from "@/lib/auth";
+import { authorizeBrandRequest } from "@/lib/auth/guard";
 import { eq, and } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { ShopifyClient } from "@/lib/platforms/shopify";
+import { toPublicConnection } from "@/lib/platforms/connection-view";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
 export async function GET(req: Request, { params }: RouteContext) {
-  const session = await auth();
-  const { id: brandId } = await params;
-
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const role = await hasBrandAccess(session.user.id, brandId);
-  if (!role) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const { id } = await params;
+  const authz = await authorizeBrandRequest(id, "viewer");
+  if (!authz.ok) return authz.response;
+  const { brandId } = authz.context;
 
   try {
     const connection = await db.query.platformConnections.findFirst({
@@ -35,9 +28,7 @@ export async function GET(req: Request, { params }: RouteContext) {
       return NextResponse.json({ connected: false });
     }
 
-    // Don't expose the full access token
-    const { accessToken, ...safeConnection } = connection;
-    return NextResponse.json({ connected: true, connection: safeConnection });
+    return NextResponse.json({ connected: true, connection: toPublicConnection(connection) });
   } catch (error) {
     console.error("Error fetching Shopify connection:", error);
     return NextResponse.json({ error: "Failed to fetch connection" }, { status: 500 });
@@ -45,17 +36,10 @@ export async function GET(req: Request, { params }: RouteContext) {
 }
 
 export async function POST(req: Request, { params }: RouteContext) {
-  const session = await auth();
-  const { id: brandId } = await params;
-
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const role = await hasBrandAccess(session.user.id, brandId);
-  if (!role || role === "viewer") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const { id } = await params;
+  const authz = await authorizeBrandRequest(id, "manager");
+  if (!authz.ok) return authz.response;
+  const { brandId } = authz.context;
 
   try {
     const body = await req.json();
@@ -69,7 +53,7 @@ export async function POST(req: Request, { params }: RouteContext) {
     const client = new ShopifyClient({ storeDomain, accessToken });
     try {
       await client.getShop();
-    } catch (error) {
+    } catch {
       return NextResponse.json({ error: "Invalid Shopify credentials" }, { status: 400 });
     }
 
@@ -82,7 +66,6 @@ export async function POST(req: Request, { params }: RouteContext) {
     });
 
     if (existing) {
-      // Update existing connection
       await db
         .update(platformConnections)
         .set({
@@ -93,9 +76,13 @@ export async function POST(req: Request, { params }: RouteContext) {
           updatedAt: new Date(),
           metadata: { myshopifyDomain: storeDomain },
         })
-        .where(eq(platformConnections.id, existing.id));
+        .where(
+          and(
+            eq(platformConnections.id, existing.id),
+            eq(platformConnections.brandId, brandId)
+          )
+        );
     } else {
-      // Create new connection
       await db.insert(platformConnections).values({
         brandId,
         platform: "shopify",
@@ -115,17 +102,10 @@ export async function POST(req: Request, { params }: RouteContext) {
 }
 
 export async function DELETE(req: Request, { params }: RouteContext) {
-  const session = await auth();
-  const { id: brandId } = await params;
-
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const role = await hasBrandAccess(session.user.id, brandId);
-  if (role !== "owner") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const { id } = await params;
+  const authz = await authorizeBrandRequest(id, "owner");
+  if (!authz.ok) return authz.response;
+  const { brandId } = authz.context;
 
   try {
     await db

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { safeCompare } from "@/lib/utils/timing-safe";
 
 /**
  * Telegram Webhook Endpoint
@@ -7,17 +8,20 @@ import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    // Telegram doesn't sign webhooks; it echoes the secret token configured via
+    // setWebhook. Fail closed in every environment when it is missing or wrong.
+    const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+    if (!expectedSecret) {
+      console.error("TELEGRAM_WEBHOOK_SECRET is not configured; rejecting webhook");
+      return NextResponse.json({ error: "Webhook not configured" }, { status: 503 });
+    }
 
-    // Verify the request is from Telegram (optional, recommended)
-    // Telegram doesn't sign webhooks, so we verify by checking the secret token
     const secretToken = request.headers.get("X-Telegram-Bot-Api-Secret-Token");
-    if (
-      secretToken !== process.env.TELEGRAM_WEBHOOK_SECRET &&
-      process.env.NODE_ENV === "production"
-    ) {
+    if (!safeCompare(secretToken, expectedSecret)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    const body = await request.json();
 
     // Process the update
     const update = body;

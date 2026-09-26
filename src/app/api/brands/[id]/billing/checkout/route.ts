@@ -1,6 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { hasBrandAccess } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { authorizeBrandRequest } from "@/lib/auth/guard";
 import { createSubscriptionCheckout } from "@/lib/payments/management";
 
 interface RouteContext {
@@ -8,50 +7,30 @@ interface RouteContext {
 }
 
 /**
- * POST - Create checkout session for subscription
+ * POST - Create checkout session for subscription (brand owners only)
  */
-export async function POST(
-  req: Request,
-  { params }: RouteContext
-) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { id: brandId } = await params;
-
-  const role = await hasBrandAccess(session.user.id, brandId);
-  if (role === "viewer") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+export async function POST(req: Request, { params }: RouteContext) {
+  const { id } = await params;
+  const authz = await authorizeBrandRequest(id, "owner");
+  if (!authz.ok) return authz.response;
+  const { brandId } = authz.context;
 
   try {
     const body = await req.json();
     const { tier, userEmail } = body;
 
-    if (!tier || !userEmail) {
-      return NextResponse.json(
-        { error: "tier and userEmail are required" },
-        { status: 400 }
-      );
+    if (typeof tier !== "string" || !tier || typeof userEmail !== "string" || !userEmail) {
+      return NextResponse.json({ error: "tier and userEmail are required" }, { status: 400 });
     }
 
     const result = await createSubscriptionCheckout(brandId, tier, userEmail);
 
     if (result) {
       return NextResponse.json(result);
-    } else {
-      return NextResponse.json(
-        { error: "Failed to create checkout session" },
-        { status: 500 }
-      );
     }
+    return NextResponse.json({ error: "Failed to create checkout session" }, { status: 500 });
   } catch (error) {
     console.error("Error creating checkout:", error);
-    return NextResponse.json(
-      { error: "Failed to create checkout session" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to create checkout session" }, { status: 500 });
   }
 }

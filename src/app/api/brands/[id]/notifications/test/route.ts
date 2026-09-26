@@ -1,6 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { hasBrandAccess } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { authorizeBrandRequest } from "@/lib/auth/guard";
 import { sendTestNotification } from "@/lib/telegram/notifications";
 
 interface RouteContext {
@@ -11,44 +10,29 @@ interface RouteContext {
  * POST - Send a test notification
  */
 export async function POST(req: Request, { params }: RouteContext) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { id: brandId } = await params;
-
-  const role = await hasBrandAccess(session.user.id, brandId);
-  if (role === "viewer") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const { id } = await params;
+  const authz = await authorizeBrandRequest(id, "manager");
+  if (!authz.ok) return authz.response;
+  const { brandId } = authz.context;
 
   try {
     const body = await req.json();
-    const { chatId } = body;
+    const chatId = typeof body?.chatId === "string" || typeof body?.chatId === "number"
+      ? String(body.chatId).trim()
+      : "";
 
-    if (!chatId) {
-      return NextResponse.json(
-        { error: "chatId is required" },
-        { status: 400 }
-      );
+    if (!chatId || chatId.length > 255) {
+      return NextResponse.json({ error: "chatId is required" }, { status: 400 });
     }
 
     const success = await sendTestNotification(brandId, chatId);
 
     if (success) {
       return NextResponse.json({ success: true });
-    } else {
-      return NextResponse.json(
-        { error: "Failed to send test notification" },
-        { status: 500 }
-      );
     }
+    return NextResponse.json({ error: "Failed to send test notification" }, { status: 500 });
   } catch (error) {
     console.error("Error sending test notification:", error);
-    return NextResponse.json(
-      { error: "Failed to send test notification" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to send test notification" }, { status: 500 });
   }
 }

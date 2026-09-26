@@ -228,18 +228,31 @@ export async function createSubscriptionCheckout(
 }
 
 /**
- * Cancel a subscription
+ * Cancel a subscription that belongs to `brandId`.
+ *
+ * The subscription is looked up by id AND brand, and the brand is re-checked
+ * before anything is sent to Polar, so a subscription id from another brand
+ * can never be cancelled through this brand.
  */
+export type CancelSubscriptionResult =
+  | { ok: true }
+  | { ok: false; reason: "not_found" | "provider_error" };
+
 export async function cancelSubscription(
   subscriptionId: string,
+  brandId: string,
   cancelAtPeriodEnd = true
-): Promise<boolean> {
+): Promise<CancelSubscriptionResult> {
   const subscription = await db.query.subscriptions.findFirst({
-    where: eq(subscriptions.id, subscriptionId),
+    where: and(
+      eq(subscriptions.id, subscriptionId),
+      eq(subscriptions.brandId, brandId)
+    ),
   });
 
-  if (!subscription) {
-    return false;
+  // Defense in depth: never act on a row that does not belong to this brand.
+  if (!subscription || subscription.brandId !== brandId) {
+    return { ok: false, reason: "not_found" };
   }
 
   // If connected to Polar, cancel there too
@@ -249,11 +262,11 @@ export async function cancelSubscription(
       cancelAtPeriodEnd
     );
     if (!polarSub) {
-      return false;
+      return { ok: false, reason: "provider_error" };
     }
   }
 
-  // Update local record
+  // Update local record (scoped to the brand)
   await db
     .update(subscriptions)
     .set({
@@ -262,9 +275,14 @@ export async function cancelSubscription(
       status: cancelAtPeriodEnd ? "active" : "canceled",
       updatedAt: new Date(),
     })
-    .where(eq(subscriptions.id, subscriptionId));
+    .where(
+      and(
+        eq(subscriptions.id, subscription.id),
+        eq(subscriptions.brandId, brandId)
+      )
+    );
 
-  return true;
+  return { ok: true };
 }
 
 /**

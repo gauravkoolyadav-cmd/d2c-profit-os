@@ -1,6 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { hasBrandAccess } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { authorizeBrandRequest } from "@/lib/auth/guard";
 import { getBrandInvoices } from "@/lib/payments/management";
 
 interface RouteContext {
@@ -10,34 +9,22 @@ interface RouteContext {
 /**
  * GET - Get invoices for a brand
  */
-export async function GET(
-  req: Request,
-  { params }: RouteContext
-) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { id: brandId } = await params;
-
-  const role = await hasBrandAccess(session.user.id, brandId);
-  if (!role) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+export async function GET(req: Request, { params }: RouteContext) {
+  const { id } = await params;
+  const authz = await authorizeBrandRequest(id, "viewer");
+  if (!authz.ok) return authz.response;
+  const { brandId } = authz.context;
 
   try {
     const { searchParams } = new URL(req.url);
-    const limit = parseInt(searchParams.get("limit") || "20");
+    const parsed = parseInt(searchParams.get("limit") || "20", 10);
+    const limit = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), 100) : 20;
 
     const invoices = await getBrandInvoices(brandId, limit);
 
     return NextResponse.json({ invoices });
   } catch (error) {
     console.error("Error fetching invoices:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch invoices" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch invoices" }, { status: 500 });
   }
 }

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { verifyPolarWebhook, parsePolarWebhook } from "@/lib/payments/polar";
 import { db } from "@/lib/db";
 import { subscriptions, invoices } from "@/lib/db/schema";
@@ -9,12 +9,18 @@ import { eq } from "drizzle-orm";
  */
 export async function POST(req: Request) {
   try {
-    const body = await req.text();
-    const signature = req.headers.get("x-polar-signature") || "";
     const webhookSecret = process.env.POLAR_WEBHOOK_SECRET;
 
-    // Verify webhook signature
-    if (webhookSecret && !verifyPolarWebhook(body, signature, webhookSecret)) {
+    // Fail closed: never process billing events without a configured secret.
+    if (!webhookSecret) {
+      console.error("POLAR_WEBHOOK_SECRET is not configured; rejecting webhook");
+      return NextResponse.json({ error: "Webhook not configured" }, { status: 503 });
+    }
+
+    const body = await req.text();
+    const signature = req.headers.get("x-polar-signature") || "";
+
+    if (!verifyPolarWebhook(body, signature, webhookSecret)) {
       return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
     }
 

@@ -3,3 +3,6 @@ export * from "./brand-auth";
 export * from "./password";
 export * from "./providers";
 export * from "./utils";
+export * from "./roles";
+export * from "./membership";
+export * from "./guard";

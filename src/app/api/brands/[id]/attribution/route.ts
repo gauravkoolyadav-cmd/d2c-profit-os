@@ -1,41 +1,37 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { hasBrandAccess } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { authorizeBrandRequest } from "@/lib/auth/guard";
 import { getBrandAttribution } from "@/lib/attribution/tracking";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
+const ATTRIBUTION_MODELS = [
+  "first_click",
+  "last_click",
+  "linear",
+  "time_decay",
+  "position_based",
+] as const;
+type AttributionModel = (typeof ATTRIBUTION_MODELS)[number];
+
 /**
  * GET - Get attribution data for a brand
  */
-export async function GET(
-  req: Request,
-  { params }: RouteContext
-) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { id: brandId } = await params;
-
-  const role = await hasBrandAccess(session.user.id, brandId);
-  if (!role) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+export async function GET(req: Request, { params }: RouteContext) {
+  const { id } = await params;
+  const authz = await authorizeBrandRequest(id, "viewer");
+  if (!authz.ok) return authz.response;
+  const { brandId } = authz.context;
 
   try {
     const { searchParams } = new URL(req.url);
     const startDate = searchParams.get("startDate") || getStartDate(30);
     const endDate = searchParams.get("endDate") || new Date().toISOString().split("T")[0];
-    const model = (searchParams.get("model") || "last_click") as
-      | "first_click"
-      | "last_click"
-      | "linear"
-      | "time_decay"
-      | "position_based";
+    const requestedModel = searchParams.get("model") || "last_click";
+    const model: AttributionModel = (ATTRIBUTION_MODELS as readonly string[]).includes(requestedModel)
+      ? (requestedModel as AttributionModel)
+      : "last_click";
 
     const attribution = await getBrandAttribution(brandId, startDate, endDate, model);
 
@@ -46,10 +42,7 @@ export async function GET(
     });
   } catch (error) {
     console.error("Error fetching attribution data:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch attribution data" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch attribution data" }, { status: 500 });
   }
 }
 

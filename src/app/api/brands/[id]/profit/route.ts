@@ -1,7 +1,5 @@
-import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
-import { hasBrandAccess } from "@/lib/auth";
 import { NextResponse } from "next/server";
+import { authorizeBrandRequest } from "@/lib/auth/guard";
 import {
   calculateProfitMetrics,
   getDailyProfitData,
@@ -16,17 +14,10 @@ interface RouteContext {
 }
 
 export async function GET(req: Request, { params }: RouteContext) {
-  const session = await auth();
-  const { id: brandId } = await params;
-
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const role = await hasBrandAccess(session.user.id, brandId);
-  if (!role) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const { id } = await params;
+  const authz = await authorizeBrandRequest(id, "viewer");
+  if (!authz.ok) return authz.response;
+  const { brandId } = authz.context;
 
   try {
     const { searchParams } = new URL(req.url);
@@ -61,7 +52,7 @@ export async function GET(req: Request, { params }: RouteContext) {
         data = await calculateProfitMetrics(brandId, dateRange);
     }
 
-    const response: any = {
+    const response: Record<string, unknown> = {
       dateRange,
       granularity,
       data,
@@ -74,9 +65,6 @@ export async function GET(req: Request, { params }: RouteContext) {
     return NextResponse.json(response);
   } catch (error) {
     console.error("Error fetching profit data:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch profit data", details: error instanceof Error ? error.message : "Unknown error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch profit data" }, { status: 500 });
   }
 }

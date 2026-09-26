@@ -1,6 +1,5 @@
-import { auth } from "@/lib/auth";
-import { hasBrandAccess } from "@/lib/auth";
 import { NextResponse } from "next/server";
+import { authorizeBrandRequest } from "@/lib/auth/guard";
 import {
   generateAnomalyAnalysis,
   generateInsights,
@@ -14,17 +13,10 @@ interface RouteContext {
 }
 
 export async function GET(req: Request, { params }: RouteContext) {
-  const session = await auth();
-  const { id: brandId } = await params;
-
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const role = await hasBrandAccess(session.user.id, brandId);
-  if (!role) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const { id } = await params;
+  const authz = await authorizeBrandRequest(id, "viewer");
+  if (!authz.ok) return authz.response;
+  const { brandId } = authz.context;
 
   try {
     const { searchParams } = new URL(req.url);
@@ -57,9 +49,7 @@ export async function GET(req: Request, { params }: RouteContext) {
       endDate: previousEnd.toISOString().split("T")[0],
     };
 
-    const result: any = {
-      dateRange,
-    };
+    const result: Record<string, unknown> = { dateRange };
 
     if (type === "all" || type === "anomalies") {
       result.anomalies = await generateAnomalyAnalysis(brandId, dateRange);
@@ -80,9 +70,6 @@ export async function GET(req: Request, { params }: RouteContext) {
     return NextResponse.json(result);
   } catch (error) {
     console.error("Error generating AI analysis:", error);
-    return NextResponse.json(
-      { error: "Failed to generate analysis", details: error instanceof Error ? error.message : "Unknown error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to generate analysis" }, { status: 500 });
   }
 }

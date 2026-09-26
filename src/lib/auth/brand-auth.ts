@@ -1,31 +1,29 @@
-import { db } from "@/lib/db";
-import { brandUsers } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
-import type { BrandUserRole } from "@/lib/validators";
+import { getBrandMembership } from "./membership";
+import { hasMinimumRole, type BrandRole } from "./roles";
 
+/**
+ * Returns the user's role in the brand, or null if the brand does not exist or
+ * the user is not a member.
+ *
+ * Prefer `requireBrandRole` / `authorizeBrandRequest` from "./guard" in route
+ * handlers; this helper remains for pages and server actions.
+ */
 export async function hasBrandAccess(
   userId: string,
   brandId: string
-): Promise<BrandUserRole | null> {
-  const brandUser = await db.query.brandUsers.findFirst({
-    where: (brandUsers, { and }) =>
-      and(eq(brandUsers.userId, userId), eq(brandUsers.brandId, brandId)),
-  });
-
-  return brandUser?.role || null;
+): Promise<BrandRole | null> {
+  const membership = await getBrandMembership(userId, brandId);
+  return membership?.role ?? null;
 }
 
 export async function canManageBrand(userId: string, brandId: string): Promise<boolean> {
-  const role = await hasBrandAccess(userId, brandId);
-  return role === "owner" || role === "manager";
+  return hasMinimumRole(await hasBrandAccess(userId, brandId), "manager");
 }
 
 export async function canEditBrand(userId: string, brandId: string): Promise<boolean> {
-  const role = await hasBrandAccess(userId, brandId);
-  return role === "owner" || role === "manager";
+  return hasMinimumRole(await hasBrandAccess(userId, brandId), "manager");
 }
 
 export async function isBrandOwner(userId: string, brandId: string): Promise<boolean> {
-  const role = await hasBrandAccess(userId, brandId);
-  return role === "owner";
+  return hasMinimumRole(await hasBrandAccess(userId, brandId), "owner");
 }

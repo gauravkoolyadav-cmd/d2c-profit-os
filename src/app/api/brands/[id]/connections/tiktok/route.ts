@@ -1,27 +1,20 @@
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { platformConnections } from "@/lib/db/schema";
-import { hasBrandAccess } from "@/lib/auth";
+import { authorizeBrandRequest } from "@/lib/auth/guard";
 import { eq, and } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { TikTokClient } from "@/lib/platforms/tiktok/client";
+import { toPublicConnection } from "@/lib/platforms/connection-view";
 
 interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
 export async function GET(req: Request, { params }: RouteContext) {
-  const session = await auth();
-  const { id: brandId } = await params;
-
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const role = await hasBrandAccess(session.user.id, brandId);
-  if (!role) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const { id } = await params;
+  const authz = await authorizeBrandRequest(id, "viewer");
+  if (!authz.ok) return authz.response;
+  const { brandId } = authz.context;
 
   try {
     const connection = await db.query.platformConnections.findFirst({
@@ -35,9 +28,8 @@ export async function GET(req: Request, { params }: RouteContext) {
       return NextResponse.json({ connected: false });
     }
 
-    // Don't expose the full access token or app secret
-    const { accessToken, ...safeConnection } = connection;
-    return NextResponse.json({ connected: true, connection: safeConnection });
+    // Never expose the access token or app secret
+    return NextResponse.json({ connected: true, connection: toPublicConnection(connection) });
   } catch (error) {
     console.error("Error fetching TikTok connection:", error);
     return NextResponse.json({ error: "Failed to fetch connection" }, { status: 500 });
@@ -45,17 +37,10 @@ export async function GET(req: Request, { params }: RouteContext) {
 }
 
 export async function POST(req: Request, { params }: RouteContext) {
-  const session = await auth();
-  const { id: brandId } = await params;
-
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const role = await hasBrandAccess(session.user.id, brandId);
-  if (!role || role === "viewer") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const { id } = await params;
+  const authz = await authorizeBrandRequest(id, "manager");
+  if (!authz.ok) return authz.response;
+  const { brandId } = authz.context;
 
   try {
     const body = await req.json();
@@ -72,12 +57,10 @@ export async function POST(req: Request, { params }: RouteContext) {
       if (accounts.length === 0) {
         return NextResponse.json({ error: "No ad accounts found" }, { status: 400 });
       }
-      // If we get here, credentials are valid
-    } catch (error) {
+    } catch {
       return NextResponse.json({ error: "Invalid TikTok credentials" }, { status: 400 });
     }
 
-    // Check for existing connection
     const existing = await db.query.platformConnections.findFirst({
       where: and(
         eq(platformConnections.brandId, brandId),
@@ -86,14 +69,9 @@ export async function POST(req: Request, { params }: RouteContext) {
     });
 
     const accountId = appId; // Use appId as the account identifier
-
-    const metadata = {
-      appId,
-      appSecret,
-    };
+    const metadata = { appId, appSecret };
 
     if (existing) {
-      // Update existing connection
       await db
         .update(platformConnections)
         .set({
@@ -104,9 +82,13 @@ export async function POST(req: Request, { params }: RouteContext) {
           updatedAt: new Date(),
           metadata,
         })
-        .where(eq(platformConnections.id, existing.id));
+        .where(
+          and(
+            eq(platformConnections.id, existing.id),
+            eq(platformConnections.brandId, brandId)
+          )
+        );
     } else {
-      // Create new connection
       await db.insert(platformConnections).values({
         brandId,
         platform: "tiktok",
@@ -126,17 +108,10 @@ export async function POST(req: Request, { params }: RouteContext) {
 }
 
 export async function DELETE(req: Request, { params }: RouteContext) {
-  const session = await auth();
-  const { id: brandId } = await params;
-
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const role = await hasBrandAccess(session.user.id, brandId);
-  if (role !== "owner") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const { id } = await params;
+  const authz = await authorizeBrandRequest(id, "owner");
+  if (!authz.ok) return authz.response;
+  const { brandId } = authz.context;
 
   try {
     await db

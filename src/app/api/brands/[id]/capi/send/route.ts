@@ -1,6 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { hasBrandAccess } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { authorizeBrandRequest } from "@/lib/auth/guard";
 import {
   sendMetaEvent,
   sendPurchaseEvent,
@@ -22,17 +21,11 @@ export async function POST(
   req: Request,
   { params }: RouteContext
 ) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { id: brandId } = await params;
-
-  const role = await hasBrandAccess(session.user.id, brandId);
-  if (role === "viewer") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const { id } = await params;
+  // Sending events uses the brand's stored Meta credentials: managers and owners only.
+  const authz = await authorizeBrandRequest(id, "manager");
+  if (!authz.ok) return authz.response;
+  const { brandId } = authz.context;
 
   try {
     const body = await req.json();
@@ -119,7 +112,7 @@ export async function POST(
   } catch (error) {
     console.error("Error sending CAPI event:", error);
     return NextResponse.json(
-      { error: "Failed to send CAPI event", details: error instanceof Error ? error.message : "Unknown error" },
+      { error: "Failed to send CAPI event" },
       { status: 500 }
     );
   }

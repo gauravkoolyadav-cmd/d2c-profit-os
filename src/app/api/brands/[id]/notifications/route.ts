@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { hasBrandAccess } from "@/lib/auth";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { authorizeBrandRequest } from "@/lib/auth/guard";
 import { db } from "@/lib/db";
 import { notificationPreferences } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -9,28 +9,54 @@ interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
+const numericString = z
+  .union([z.string(), z.number()])
+  .transform((value) => String(value).trim())
+  .refine((value) => value.length > 0 && value.length <= 10 && Number.isFinite(Number(value)), {
+    message: "Must be a number",
+  });
+
+const timeOfDay = z
+  .string()
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Must be HH:MM")
+  .nullable();
+
 /**
- * GET - Get notification preferences for a brand
+ * Only these fields may be written by clients. Unknown keys (id, brandId,
+ * userId, createdAt, ...) are stripped, so a request can never re-assign a
+ * preference row to another brand or user.
+ */
+const notificationPreferencesInput = z.object({
+  telegramChatId: z.string().trim().max(255).nullable().optional(),
+  enabled: z.boolean().optional(),
+  alertOnLowRoas: z.boolean().optional(),
+  alertOnSpendSpike: z.boolean().optional(),
+  alertOnRevenueDrop: z.boolean().optional(),
+  alertOnNewOrder: z.boolean().optional(),
+  alertOnDailySummary: z.boolean().optional(),
+  alertOnWeeklySummary: z.boolean().optional(),
+  lowRoasThreshold: numericString.optional(),
+  spendSpikeThreshold: numericString.optional(),
+  revenueDropThreshold: numericString.optional(),
+  quietHoursStart: timeOfDay.optional(),
+  quietHoursEnd: timeOfDay.optional(),
+  timezone: z.string().trim().min(1).max(64).optional(),
+});
+
+/**
+ * GET - Get the current user's notification preferences for a brand
  */
 export async function GET(req: Request, { params }: RouteContext) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { id: brandId } = await params;
-
-  const role = await hasBrandAccess(session.user.id, brandId);
-  if (!role) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const { id } = await params;
+  const authz = await authorizeBrandRequest(id, "viewer");
+  if (!authz.ok) return authz.response;
+  const { brandId, userId } = authz.context;
 
   try {
-    // Get preferences for this user/brand combination
     const prefs = await db.query.notificationPreferences.findFirst({
       where: and(
         eq(notificationPreferences.brandId, brandId),
-        eq(notificationPreferences.userId, session.user.id)
+        eq(notificationPreferences.userId, userId)
       ),
     });
 
@@ -45,47 +71,47 @@ export async function GET(req: Request, { params }: RouteContext) {
 }
 
 /**
- * PUT - Update notification preferences
+ * PUT - Update the current user's notification preferences
  */
 export async function PUT(req: Request, { params }: RouteContext) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { id: brandId } = await params;
-
-  const role = await hasBrandAccess(session.user.id, brandId);
-  if (role === "viewer") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const { id } = await params;
+  const authz = await authorizeBrandRequest(id, "manager");
+  if (!authz.ok) return authz.response;
+  const { brandId, userId } = authz.context;
 
   try {
-    const body = await req.json();
+    const parsed = notificationPreferencesInput.safeParse(await req.json());
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid input", details: parsed.error.flatten() },
+        { status: 400 }
+      );
+    }
+    const input = parsed.data;
 
-    // Check if preferences exist
     const existing = await db.query.notificationPreferences.findFirst({
       where: and(
         eq(notificationPreferences.brandId, brandId),
-        eq(notificationPreferences.userId, session.user.id)
+        eq(notificationPreferences.userId, userId)
       ),
     });
 
     if (existing) {
-      // Update existing
       await db
         .update(notificationPreferences)
-        .set({
-          ...body,
-          updatedAt: new Date(),
-        })
-        .where(eq(notificationPreferences.id, existing.id));
+        .set({ ...input, updatedAt: new Date() })
+        .where(
+          and(
+            eq(notificationPreferences.id, existing.id),
+            eq(notificationPreferences.brandId, brandId),
+            eq(notificationPreferences.userId, userId)
+          )
+        );
     } else {
-      // Create new
       await db.insert(notificationPreferences).values({
-        ...body,
+        ...input,
         brandId,
-        userId: session.user.id,
+        userId,
       });
     }
 
@@ -100,20 +126,13 @@ export async function PUT(req: Request, { params }: RouteContext) {
 }
 
 /**
- * DELETE - Remove notification preferences
+ * DELETE - Remove the current user's notification preferences
  */
 export async function DELETE(req: Request, { params }: RouteContext) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { id: brandId } = await params;
-
-  const role = await hasBrandAccess(session.user.id, brandId);
-  if (role === "viewer") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const { id } = await params;
+  const authz = await authorizeBrandRequest(id, "manager");
+  if (!authz.ok) return authz.response;
+  const { brandId, userId } = authz.context;
 
   try {
     await db
@@ -121,7 +140,7 @@ export async function DELETE(req: Request, { params }: RouteContext) {
       .where(
         and(
           eq(notificationPreferences.brandId, brandId),
-          eq(notificationPreferences.userId, session.user.id)
+          eq(notificationPreferences.userId, userId)
         )
       );
 
