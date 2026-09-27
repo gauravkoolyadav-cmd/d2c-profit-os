@@ -35,19 +35,5 @@
         }
       ]
     }
-  ],
-  "crons": [
-    {
-      "path": "/api/cron/daily-summary",
-      "schedule": "0 18 * * *"
-    },
-    {
-      "path": "/api/cron/weekly-summary",
-      "schedule": "0 18 * * 1"
-    },
-    {
-      "path": "/api/cron/check-anomalies",
-      "schedule": "0 */2 * * *"
-    }
   ]
 }
