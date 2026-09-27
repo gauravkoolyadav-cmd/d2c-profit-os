@@ -1,0 +1,45 @@
+/** A realistic Shopify order webhook payload (REST JSON) for tests. */
+export function shopifyOrderPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: 5550001111,
+    order_number: 1001,
+    name: "#1001",
+    created_at: "2026-09-25T20:15:00+00:00", // 26 Sep 01:45 IST
+    updated_at: "2026-09-25T20:16:00+00:00",
+    currency: "INR",
+    total_price: "1499.00",
+    subtotal_price: "1499.00",
+    total_discounts: "0.00",
+    total_tax: "228.66",
+    financial_status: "paid",
+    fulfillment_status: null,
+    payment_gateway_names: ["razorpay"],
+    cancelled_at: null,
+    tags: "",
+    source_name: "web",
+    test: false,
+    email: "buyer@example.com",
+    phone: "+919999999999",
+    customer: { id: 1, first_name: "Asha", email: "buyer@example.com" },
+    billing_address: { name: "Asha", address1: "1 Street" },
+    shipping_address: { name: "Asha", address1: "1 Street", city: "Agra", province: "Uttar Pradesh", zip: "282007", country_code: "IN" },
+    landing_site: "/products/nepolian-clog?utm_source=facebook&utm_medium=paid&utm_campaign=120000000000100&utm_content=120000000000001&fbclid=abc",
+    referring_site: "https://l.facebook.com/",
+    note_attributes: [],
+    line_items: [
+      {
+        id: 9990001,
+        product_id: 777,
+        variant_id: 888,
+        title: "Nepolian Clog",
+        variant_title: "Black / 8",
+        name: "Nepolian Clog - Black / 8",
+        sku: "NC-BLK-8",
+        quantity: 1,
+        price: "1499.00",
+      },
+    ],
+    fulfillments: [],
+    ...overrides,
+  };
+}

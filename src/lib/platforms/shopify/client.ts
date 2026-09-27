@@ -155,6 +155,37 @@ export class ShopifyClient {
     return response.order;
   }
 
+  /**
+   * One page of orders updated since a timestamp (V1 catch-up sync).
+   * Uses cursor pagination via the Link header.
+   */
+  async listOrdersUpdatedSince(
+    updatedAtMin: string,
+    pageInfo?: string
+  ): Promise<{ orders: Record<string, unknown>[]; nextPageInfo: string | null }> {
+    const params = new URLSearchParams({ limit: "250" });
+    if (pageInfo) {
+      params.set("page_info", pageInfo);
+    } else {
+      params.set("status", "any");
+      params.set("updated_at_min", updatedAtMin);
+      params.set("order", "updated_at asc");
+    }
+    const response = await fetch(`${this.baseUrl}/orders.json?${params.toString()}`, {
+      headers: { "X-Shopify-Access-Token": this.config.accessToken },
+    });
+    if (!response.ok) {
+      throw new Error(`Shopify API error: ${response.status} ${response.statusText}`);
+    }
+    const json = (await response.json()) as { orders: Record<string, unknown>[] };
+    const link = response.headers.get("link") ?? "";
+    const next = link
+      .split(",")
+      .find((part) => part.includes('rel="next"'))
+      ?.match(/page_info=([^&>]+)/)?.[1];
+    return { orders: json.orders ?? [], nextPageInfo: next ?? null };
+  }
+
   async getShop() {
     const response = await this.request<{ shop: { id: bigint; name: string; email: string; currency: string } }>(
       `/shop.json`
@@ -172,7 +203,10 @@ export function verifyWebhookHMAC(
       .createHmac("sha256", webhookSecret)
       .update(body)
       .digest("base64");
-    return crypto.timingSafeEqual(Buffer.from(hmac), Buffer.from(digest));
+    const a = Buffer.from(hmac);
+    const b = Buffer.from(digest);
+    // timingSafeEqual throws on length mismatch; a wrong-length HMAC is simply invalid.
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 export function calculateTransactionFee(

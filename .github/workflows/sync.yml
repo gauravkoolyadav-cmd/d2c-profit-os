@@ -1,70 +1,50 @@
-name: Sync Ad Platforms
+name: Profit Dashboard Sync
 
+# Calls the protected cron endpoint of the deployed app.
+# Repository secrets needed: APP_URL (e.g. https://your-app.vercel.app) and CRON_SECRET.
 on:
   schedule:
-    - cron: '*/30 * * * *'  # Every 30 minutes
+    - cron: '*/15 * * * *'  # Google Sheet economics + Meta spend
+    - cron: '7 * * * *'     # hourly Shopify catch-up (missed webhooks)
   workflow_dispatch:
+    inputs:
+      job:
+        description: 'Which sync to run'
+        required: true
+        default: 'all'
+        type: choice
+        options: [all, sheet, meta, shopify]
 
 jobs:
-  sync-meta:
-    name: Sync Meta Ads
+  sync:
+    name: Run profit sync
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Decide job
+        id: job
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "jobs=${{ inputs.job }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "7 * * * *" ]; then
+            echo "jobs=shopify" >> "$GITHUB_OUTPUT"
+          else
+            echo "jobs=sheet meta" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Sync all Meta brands
-        run: node scripts/sync-platform.js meta
+      - name: Call cron endpoint
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-
-  sync-shopify:
-    name: Sync Shopify
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Sync all Shopify stores
-        run: node scripts/sync-platform.js shopify
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-
-  sync-google:
-    name: Sync Google Ads
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Sync all Google Ads accounts
-        run: node scripts/sync-platform.js google
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "APP_URL / CRON_SECRET secrets are not set; skipping."
+            exit 0
+          fi
+          for job in ${{ steps.job.outputs.jobs }}; do
+            echo "Running $job"
+            curl --fail-with-body -sS -X POST \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              "$APP_URL/api/cron/profit-sync?job=$job"
+            echo
+          done

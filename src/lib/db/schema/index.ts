@@ -20,3 +20,5 @@ export * from "./payments";
 export * from "./system";
 // Extended relations
 export * from "./relations";
+// V1 simple profit dashboard
+export * from "./profit-v1";

@@ -151,6 +151,58 @@ export class MetaClient {
     return response.data;
   }
 
+  // ── V1 profit dashboard: ad-level data with paging ───────────────────────
+
+  private async fetchAllPages<T>(
+    endpoint: string,
+    params: Record<string, string>,
+    maxPages = 50
+  ): Promise<T[]> {
+    const results: T[] = [];
+    let page = await this.request<{ data: T[]; paging?: { next?: string } }>(endpoint, params);
+    results.push(...page.data);
+    let pages = 1;
+    while (page.paging?.next && pages < maxPages) {
+      const response = await fetch(page.paging.next, {
+        headers: { Authorization: `Bearer ${this.config.accessToken}` },
+      });
+      if (!response.ok) {
+        throw new Error(`Meta API error: ${response.status} ${response.statusText} - ${await response.text()}`);
+      }
+      page = await response.json();
+      results.push(...page.data);
+      pages += 1;
+    }
+    return results;
+  }
+
+  /** Every campaign in the account (id + name), including paused ones. */
+  async listCampaigns(adAccountId: string): Promise<Array<{ id: string; name: string; status?: string }>> {
+    return this.fetchAllPages(`/act_${normalizeAccountId(adAccountId)}/campaigns`, {
+      fields: "id,name,status",
+      limit: "500",
+    });
+  }
+
+  /** Every ad (creative) with its ad set and campaign. */
+  async listAdsWithHierarchy(adAccountId: string): Promise<MetaAdWithHierarchy[]> {
+    return this.fetchAllPages(`/act_${normalizeAccountId(adAccountId)}/ads`, {
+      fields: "id,name,status,adset{id,name},campaign{id,name},creative{id,name,thumbnail_url}",
+      limit: "500",
+    });
+  }
+
+  /** Daily spend per ad for a date range (dates are in the ad account timezone). */
+  async getAdDailyInsights(adAccountId: string, since: string, until: string): Promise<MetaAdDailyInsight[]> {
+    return this.fetchAllPages(`/act_${normalizeAccountId(adAccountId)}/insights`, {
+      level: "ad",
+      time_increment: "1",
+      time_range: JSON.stringify({ since, until }),
+      fields: "date_start,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,spend,impressions,clicks,actions",
+      limit: "500",
+    });
+  }
+
   // Convert Meta actions to conversions
   static getConversionCount(insights: MetaInsights): number {
     // Action type for purchases
@@ -174,4 +226,32 @@ export class MetaClient {
     if (!insights.impressions) return 0;
     return (insights.spend / insights.impressions) * 1000;
   }
+}
+
+export interface MetaAdWithHierarchy {
+  id: string;
+  name: string;
+  status?: string;
+  adset?: { id: string; name: string };
+  campaign?: { id: string; name: string };
+  creative?: { id: string; name?: string; thumbnail_url?: string };
+}
+
+export interface MetaAdDailyInsight {
+  date_start: string;
+  campaign_id: string;
+  campaign_name?: string;
+  adset_id?: string;
+  adset_name?: string;
+  ad_id: string;
+  ad_name?: string;
+  spend?: string;
+  impressions?: string;
+  clicks?: string;
+  actions?: Array<{ action_type: string; value: string }>;
+}
+
+/** Accepts "act_123" or "123". */
+export function normalizeAccountId(adAccountId: string): string {
+  return adAccountId.trim().replace(/^act_/, "");
 }

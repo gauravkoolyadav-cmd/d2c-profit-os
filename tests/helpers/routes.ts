@@ -99,6 +99,12 @@ export const BRAND_ROUTES: BrandRoute[] = [
     ];
   }),
 
+  // ── V1 profit dashboard ────────────────────────────────────────────────
+  { name: "GET profit-dashboard", method: "GET", load: () => import("@/app/api/brands/[id]/profit-dashboard/route"), path: (id) => `${b(id)}/profit-dashboard`, query: "range=30d", minRole: "viewer", categories: ["dashboard/profit", "orders", "campaigns", "products"] },
+  { name: "POST profit-dashboard/sync", method: "POST", load: () => import("@/app/api/brands/[id]/profit-dashboard/sync/route"), path: (id) => `${b(id)}/profit-dashboard/sync`, body: { source: "meta" }, minRole: "manager", categories: ["integrations", "campaigns", "orders"] },
+  { name: "GET profit-dashboard/settings", method: "GET", load: () => import("@/app/api/brands/[id]/profit-dashboard/settings/route"), path: (id) => `${b(id)}/profit-dashboard/settings`, minRole: "viewer", categories: ["settings"] },
+  { name: "PUT profit-dashboard/settings", method: "PUT", load: () => import("@/app/api/brands/[id]/profit-dashboard/settings/route"), path: (id) => `${b(id)}/profit-dashboard/settings`, body: { defaultProductGstPercent: 5 }, minRole: "manager", categories: ["settings"] },
+
   // ── Billing ────────────────────────────────────────────────────────────
   { name: "POST billing/checkout", method: "POST", load: () => import("@/app/api/brands/[id]/billing/checkout/route"), path: (id) => `${b(id)}/billing/checkout`, body: { tier: "starter", userEmail: "owner@test.local" }, minRole: "owner", categories: ["billing", "settings"] },
   { name: "GET billing/subscription", method: "GET", load: () => import("@/app/api/brands/[id]/billing/subscription/route"), path: (id) => `${b(id)}/billing/subscription`, minRole: "viewer", categories: ["billing", "settings"] },

@@ -1,3 +1,4 @@
+import { getTableName } from "drizzle-orm";
 /**
  * Chainable fake for the Drizzle `db` object.
  *
@@ -9,6 +10,8 @@
 export interface DbCall {
   path: string;
   args: unknown[];
+  /** Table name passed to insert()/update()/delete()/from(), when known. */
+  table?: string;
 }
 
 export const dbCalls: DbCall[] = [];
@@ -55,27 +58,47 @@ export function setDbResult(path: string, value: unknown): void {
   overrides.set(path, value);
 }
 
-function resolveFor(path: string): unknown {
+/** Override for a chain that touched a specific table, e.g. "select.from.where@orders". */
+export function setDbResultForTable(path: string, table: string, value: unknown): void {
+  overrides.set(`${path}@${table}`, value);
+}
+
+function tableNameOf(value: unknown): string | undefined {
+  if (value && typeof value === "object") {
+    try {
+      return getTableName(value as never) || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+function resolveFor(path: string, table?: string): unknown {
+  if (table && overrides.has(`${path}@${table}`)) return overrides.get(`${path}@${table}`);
   if (overrides.has(path)) return overrides.get(path);
   if (path.endsWith("findFirst")) return undefined;
   if (path.endsWith("returning")) return [{ id: "00000000-0000-4000-8000-0000000000ff" }];
   return [];
 }
 
-function makeNode(path: string): unknown {
+function makeNode(path: string, table?: string): unknown {
   const target = function () {};
   return new Proxy(target, {
     get(_t, prop) {
       if (typeof prop === "symbol") return undefined;
       if (prop === "then") {
-        const value = resolveFor(path);
+        const value = resolveFor(path, table);
         return (resolve: (v: unknown) => unknown) => resolve(value);
       }
-      return makeNode(path ? `${path}.${prop}` : prop);
+      return makeNode(path ? `${path}.${prop}` : prop, table);
     },
     apply(_t, _this, args: unknown[]) {
-      dbCalls.push({ path, args });
-      return makeNode(path);
+      const last = path.split(".").pop();
+      const argTable = ["insert", "update", "delete", "from"].includes(last ?? "") ? tableNameOf(args[0]) : undefined;
+      const nextTable = table ?? argTable;
+      dbCalls.push({ path, args, table: nextTable });
+      return makeNode(path, nextTable);
     },
   });
 }

@@ -82,7 +82,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                 </div>
                 <div className="flex gap-2 mt-4">
                   <Button variant="outline" size="sm" asChild>
-                    <Link href={`/dashboard?brandId=${brand.id}`}>View Dashboard</Link>
+                    <Link href={`/dashboard/brands/${brand.id}/profit`}>Profit Dashboard</Link>
                   </Button>
                 </div>
               </CardContent>

@@ -46,8 +46,9 @@ describe.each(BRAND_ROUTES)("$name (min role: $minRole)", (route) => {
 describe("route inventory", () => {
   it("covers every brand-scoped route handler", () => {
     const names = new Set(BRAND_ROUTES.map((r) => r.name));
-    // 22 brand-scoped handler files expose these 37 method/route combinations.
+    // 25 brand-scoped handler files expose these 41 method/route combinations
+    // (37 from Phase 1 + 4 V1 profit dashboard routes).
     expect(names.size).toBe(BRAND_ROUTES.length);
-    expect(BRAND_ROUTES.length).toBe(37);
+    expect(BRAND_ROUTES.length).toBe(41);
   });
 });

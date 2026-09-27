@@ -138,6 +138,14 @@ vi.mock("@/lib/platforms/tiktok/client", () => ({
   })),
 }));
 
+// V1 profit sync jobs call Google / Meta / Shopify: never run them from route tests.
+vi.mock("@/lib/profit-v1/jobs", () => ({
+  syncSheetForBrand: vi.fn(async () => ({ ok: true, message: "synced" })),
+  syncMetaForBrand: vi.fn(async () => ({ ok: true, message: "synced" })),
+  syncShopifyForBrand: vi.fn(async () => ({ ok: true, message: "synced" })),
+  purchasesFromActions: vi.fn(() => 0),
+}));
+
 // Keep expected error logging out of the test output.
 vi.spyOn(console, "error").mockImplementation(() => {});
 

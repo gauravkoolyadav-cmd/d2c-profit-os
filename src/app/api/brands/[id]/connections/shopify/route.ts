@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { platformConnections } from "@/lib/db/schema";
 import { authorizeBrandRequest } from "@/lib/auth/guard";
-import { eq, and } from "drizzle-orm";
+import { eq, and, ne, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { ShopifyClient } from "@/lib/platforms/shopify";
 import { toPublicConnection } from "@/lib/platforms/connection-view";
@@ -43,10 +43,29 @@ export async function POST(req: Request, { params }: RouteContext) {
 
   try {
     const body = await req.json();
-    const { storeDomain, accessToken } = body;
+    const accessToken = typeof body?.accessToken === "string" ? body.accessToken.trim() : "";
+    const storeDomain = typeof body?.storeDomain === "string" ? body.storeDomain.trim().toLowerCase() : "";
+    // Optional per-store webhook signing secret (Shopify custom apps each have their own).
+    const webhookSecret = typeof body?.webhookSecret === "string" ? body.webhookSecret.trim() : "";
 
     if (!storeDomain || !accessToken) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
+
+    // A shop can belong to only one brand, otherwise its webhooks could land in the wrong tenant.
+    const ownedElsewhere = await db
+      .select({ brandId: platformConnections.brandId })
+      .from(platformConnections)
+      .where(
+        and(
+          eq(platformConnections.platform, "shopify"),
+          sql`lower(${platformConnections.accountId}) = ${storeDomain}`,
+          ne(platformConnections.brandId, brandId)
+        )
+      )
+      .limit(1);
+    if (ownedElsewhere.length > 0) {
+      return NextResponse.json({ error: "This store is already connected to another brand" }, { status: 409 });
     }
 
     // Validate credentials by making a test request
@@ -74,7 +93,7 @@ export async function POST(req: Request, { params }: RouteContext) {
           status: "active",
           lastSyncedAt: new Date(),
           updatedAt: new Date(),
-          metadata: { myshopifyDomain: storeDomain },
+          metadata: { myshopifyDomain: storeDomain, ...(webhookSecret && { webhookSecret }) },
         })
         .where(
           and(
@@ -90,7 +109,7 @@ export async function POST(req: Request, { params }: RouteContext) {
         accessToken,
         status: "active",
         lastSyncedAt: new Date(),
-        metadata: { myshopifyDomain: storeDomain },
+        metadata: { myshopifyDomain: storeDomain, ...(webhookSecret && { webhookSecret }) },
       });
     }
 

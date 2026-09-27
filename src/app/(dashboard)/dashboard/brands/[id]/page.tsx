@@ -55,6 +55,9 @@ export default async function BrandDetailPage({ params }: PageProps) {
           <p className="text-muted-foreground capitalize">{userRole} access</p>
         </div>
         <div className="flex gap-2">
+          <Button asChild>
+            <Link href={`/dashboard/brands/${brand.id}/profit`}>Profit dashboard</Link>
+          </Button>
           <Button variant="outline" asChild>
             <Link href={`/dashboard/brands/${brand.id}/settings`}>Settings</Link>
           </Button>

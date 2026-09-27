@@ -13,10 +13,11 @@ import * as metaClient from "@/lib/platforms/meta/client";
 import * as googleClient from "@/lib/platforms/google/client";
 import * as snapchatClient from "@/lib/platforms/snapchat/client";
 import * as tiktokClient from "@/lib/platforms/tiktok/client";
+import * as profitJobs from "@/lib/profit-v1/jobs";
 
 const MODULES: Record<string, Record<string, unknown>> = {
   profit, overview, ai, attribution, payments, polar, telegram, capi, adsSync,
-  shopify, metaClient, googleClient, snapchatClient, tiktokClient,
+  shopify, metaClient, googleClient, snapchatClient, tiktokClient, profitJobs,
 };
 
 /** Every mocked service / platform-client function, keyed "module.export". */
