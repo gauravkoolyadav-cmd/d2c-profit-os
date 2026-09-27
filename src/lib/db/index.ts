@@ -2,7 +2,11 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "./schema";
 
-if (!process.env.DATABASE_URL) {
+// `next build` imports route modules to collect page data; no DB connection is made then
+// (pg connects lazily on the first query), so only require DATABASE_URL at runtime.
+const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
+
+if (!process.env.DATABASE_URL && !isBuildPhase) {
   throw new Error("DATABASE_URL is not set");
 }
 
