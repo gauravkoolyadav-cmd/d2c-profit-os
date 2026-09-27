@@ -5,18 +5,6 @@
   "installCommand": "npm ci",
   "framework": "nextjs",
   "regions": ["iad1"],
-  "env": {
-    "NEXT_PUBLIC_APP_URL": "@app-url",
-    "DATABASE_URL": "@database-url",
-    "AUTH_SECRET": "@auth-secret",
-    "NEXTAUTH_SECRET": "@auth-secret",
-    "NEXTAUTH_URL": "@app-url"
-  },
-  "build": {
-    "env": {
-      "NEXT_PUBLIC_APP_URL": "@app-url"
-    }
-  },
   "headers": [
     {
       "source": "/api/(.*)",
